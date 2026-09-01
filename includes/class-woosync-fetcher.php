@@ -2,7 +2,7 @@
 /**
  * WooSync API Fetcher
  *
- * Handles API connections to Shopify and WordPress / WooCommerce,
+ * Handles API connections to Shopify Public Storefront and WooCommerce Public Store API,
  * and normalizes product data (including multi-option variants) into a standardized structure.
  *
  * @package WooSync_Pro
@@ -25,25 +25,19 @@ class WooSync_Fetcher {
 
         switch ( $api_type ) {
             case 'shopify_json':
+            case 'shopify':
                 return self::fetch_shopify_json( $config );
 
-            case 'shopify_admin':
-                return self::fetch_shopify_admin( $config );
-
+            case 'woocommerce_store_api':
             case 'wordpress_wc':
-                return self::fetch_wordpress_wc( $config );
+            case 'woocommerce':
+                return self::fetch_woocommerce_store_api( $config );
 
             default:
                 return new WP_Error( 'invalid_api_type', __( 'Invalid API type specified.', 'woosync-pro' ) );
         }
     }
 
-    /**
-     * Fetch products from Shopify Public Storefront JSON.
-     *
-     * @param array $config
-     * @return array|WP_Error
-     */
     /**
      * Fetch products from Shopify Public Storefront JSON (catalog or single product).
      *
@@ -120,29 +114,34 @@ class WooSync_Fetcher {
     }
 
     /**
-     * Fetch products from Shopify Admin REST API.
+     * Fetch products from WooCommerce Public Store API (/wp-json/wc/store/v1/products).
      *
      * @param array $config
      * @return array|WP_Error
      */
-    private static function fetch_shopify_admin( $config ) {
-        $store_url    = isset( $config['admin_store_url'] ) ? sanitize_text_field( trim( $config['admin_store_url'] ) ) : '';
-        $access_token = isset( $config['admin_access_token'] ) ? sanitize_text_field( trim( $config['admin_access_token'] ) ) : '';
-        $api_version  = isset( $config['admin_api_version'] ) && ! empty( $config['admin_api_version'] ) ? sanitize_text_field( $config['admin_api_version'] ) : '2024-01';
-
-        if ( empty( $store_url ) || empty( $access_token ) ) {
-            return new WP_Error( 'missing_credentials', __( 'Store URL and Admin API Access Token are required.', 'woosync-pro' ) );
+    private static function fetch_woocommerce_store_api( $config ) {
+        $url = isset( $config['wc_store_api_url'] ) ? esc_url_raw( trim( $config['wc_store_api_url'] ) ) : ( isset( $config['wp_store_url'] ) ? esc_url_raw( trim( $config['wp_store_url'] ) ) : '' );
+        if ( empty( $url ) ) {
+            return new WP_Error( 'missing_url', __( 'Please provide a valid WooCommerce Store API URL.', 'woosync-pro' ) );
         }
 
-        // Clean store URL
-        $store_domain = preg_replace( '#^https?://#', '', rtrim( $store_url, '/' ) );
-        $endpoint     = 'https://' . $store_domain . '/admin/api/' . $api_version . '/products.json?limit=50';
+        $cleaned_url = rtrim( $url, '/' );
+        $url_parts   = explode( '?', $cleaned_url );
+        $base_path   = $url_parts[0];
+        $query_str   = isset( $url_parts[1] ) ? '?' . $url_parts[1] : '';
+
+        // If user provided a base store URL (e.g. https://example.com)
+        if ( strpos( $base_path, '/wp-json/' ) === false ) {
+            $endpoint = $base_path . '/wp-json/wc/store/v1/products' . ( empty( $query_str ) ? '?per_page=50' : $query_str );
+        } else {
+            $endpoint = $url;
+        }
 
         $response = wp_remote_get( $endpoint, array(
-            'timeout' => 30,
-            'headers' => array(
-                'Content-Type'           => 'application/json',
-                'X-Shopify-Access-Token' => $access_token,
+            'timeout'    => 30,
+            'user-agent' => 'WooSync Pro Importer/' . WOOSYNC_VERSION,
+            'headers'    => array(
+                'Accept' => 'application/json',
             ),
         ) );
 
@@ -154,70 +153,8 @@ class WooSync_Fetcher {
         if ( $code !== 200 ) {
             $body = wp_remote_retrieve_body( $response );
             $err  = json_decode( $body, true );
-            $msg  = isset( $err['errors'] ) ? ( is_array( $err['errors'] ) ? json_encode( $err['errors'] ) : $err['errors'] ) : "HTTP Status: $code";
-            return new WP_Error( 'shopify_api_error', sprintf( __( 'Shopify Admin API error: %s', 'woosync-pro' ), $msg ) );
-        }
-
-        $body = wp_remote_retrieve_body( $response );
-        $data = json_decode( $body, true );
-
-        if ( isset( $data['products'] ) && is_array( $data['products'] ) ) {
-            return self::normalize_shopify_products( $data['products'] );
-        }
-
-        if ( isset( $data['product'] ) && is_array( $data['product'] ) ) {
-            return self::normalize_shopify_products( array( $data['product'] ) );
-        }
-
-        return new WP_Error( 'no_products', __( 'No products found in this Shopify store.', 'woosync-pro' ) );
-    }
-
-    /**
-     * Fetch products from remote WordPress / WooCommerce REST API.
-     *
-     * @param array $config
-     * @return array|WP_Error
-     */
-    private static function fetch_wordpress_wc( $config ) {
-        $store_url       = isset( $config['wp_store_url'] ) ? esc_url_raw( trim( $config['wp_store_url'] ) ) : '';
-        $consumer_key    = isset( $config['wp_consumer_key'] ) ? sanitize_text_field( trim( $config['wp_consumer_key'] ) ) : '';
-        $consumer_secret = isset( $config['wp_consumer_secret'] ) ? sanitize_text_field( trim( $config['wp_consumer_secret'] ) ) : '';
-
-        if ( empty( $store_url ) ) {
-            return new WP_Error( 'missing_url', __( 'Please provide the remote WordPress / WooCommerce site URL.', 'woosync-pro' ) );
-        }
-
-        $cleaned_url = rtrim( $store_url, '/' );
-        if ( strpos( $cleaned_url, '/wp-json/wc/' ) !== false ) {
-            $endpoint = $cleaned_url;
-        } else {
-            $endpoint = $cleaned_url . '/wp-json/wc/v3/products?per_page=50';
-        }
-
-        $args = array(
-            'timeout'    => 30,
-            'user-agent' => 'WooSync Pro Importer/' . WOOSYNC_VERSION,
-            'headers'    => array(
-                'Accept' => 'application/json',
-            ),
-        );
-
-        if ( ! empty( $consumer_key ) && ! empty( $consumer_secret ) ) {
-            $args['headers']['Authorization'] = 'Basic ' . base64_encode( $consumer_key . ':' . $consumer_secret );
-        }
-
-        $response = wp_remote_get( $endpoint, $args );
-
-        if ( is_wp_error( $response ) ) {
-            return $response;
-        }
-
-        $code = wp_remote_retrieve_response_code( $response );
-        if ( $code !== 200 ) {
-            $body = wp_remote_retrieve_body( $response );
-            $err  = json_decode( $body, true );
             $msg  = isset( $err['message'] ) ? $err['message'] : "HTTP Status: $code";
-            return new WP_Error( 'wc_api_error', sprintf( __( 'WooCommerce API Error: %s', 'woosync-pro' ), $msg ) );
+            return new WP_Error( 'wc_api_error', sprintf( __( 'WooCommerce Store API Error: %s', 'woosync-pro' ), $msg ) );
         }
 
         $body = wp_remote_retrieve_body( $response );
@@ -227,12 +164,14 @@ class WooSync_Fetcher {
             return new WP_Error( 'no_products', __( 'No products found on the remote WooCommerce store.', 'woosync-pro' ) );
         }
 
-        if ( isset( $data['id'] ) && ! empty( $data['id'] ) ) {
-            return self::normalize_woocommerce_products( array( $data ) );
+        // Single product object
+        if ( isset( $data['id'] ) && ! empty( $data['id'] ) && ! isset( $data[0] ) ) {
+            return self::normalize_woocommerce_store_products( array( $data ) );
         }
 
+        // Array of products
         if ( is_array( $data ) && ! empty( $data ) ) {
-            return self::normalize_woocommerce_products( $data );
+            return self::normalize_woocommerce_store_products( $data );
         }
 
         return new WP_Error( 'no_products', __( 'No products found on the remote WooCommerce store.', 'woosync-pro' ) );
@@ -260,7 +199,7 @@ class WooSync_Fetcher {
             $options = array();
             if ( ! empty( $item['options'] ) && is_array( $item['options'] ) ) {
                 foreach ( $item['options'] as $opt ) {
-                    $opt_name = isset( $opt['name'] ) ? sanitize_text_field( $opt['name'] ) : '';
+                    $opt_name   = isset( $opt['name'] ) ? sanitize_text_field( $opt['name'] ) : '';
                     $opt_values = isset( $opt['values'] ) && is_array( $opt['values'] ) ? array_map( 'sanitize_text_field', $opt['values'] ) : array();
                     if ( ! empty( $opt_name ) ) {
                         $options[] = array(
@@ -329,7 +268,6 @@ class WooSync_Fetcher {
                 }
             }
 
-            // In Shopify, multiple variants or non-default single variant means Variable product
             if ( count( $variants ) > 1 ) {
                 $has_variants = true;
             } elseif ( count( $variants ) === 1 && $variants[0]['title'] !== 'Default Title' && ! empty( $options ) && count( $options ) > 0 && strtolower( $options[0]['name'] ) !== 'title' ) {
@@ -407,12 +345,12 @@ class WooSync_Fetcher {
     }
 
     /**
-     * Normalize WooCommerce REST API products to uniform structure.
+     * Normalize WooCommerce Public Store API products (/wp-json/wc/store/v1/products).
      *
-     * @param array $products Raw products from WooCommerce API.
+     * @param array $products Raw products from WooCommerce Store API.
      * @return array
      */
-    private static function normalize_woocommerce_products( $products ) {
+    private static function normalize_woocommerce_store_products( $products ) {
         $normalized = array();
 
         foreach ( $products as $item ) {
@@ -422,20 +360,102 @@ class WooSync_Fetcher {
             $description       = isset( $item['description'] ) ? $item['description'] : '';
             $short_description = isset( $item['short_description'] ) ? $item['short_description'] : '';
             $sku               = isset( $item['sku'] ) ? $item['sku'] : '';
-            $regular_price     = isset( $item['regular_price'] ) ? (string) $item['regular_price'] : '';
-            $sale_price        = isset( $item['sale_price'] ) ? (string) $item['sale_price'] : '';
-            $price             = isset( $item['price'] ) ? (string) $item['price'] : $regular_price;
-            $stock_quantity    = isset( $item['stock_quantity'] ) ? (int) $item['stock_quantity'] : null;
             $type              = isset( $item['type'] ) ? $item['type'] : 'simple';
+
+            // Prices calculation with minor_unit support (e.g. 2799 -> 27.99)
+            $minor_unit = isset( $item['prices']['currency_minor_unit'] ) ? (int) $item['prices']['currency_minor_unit'] : 2;
+            $divisor    = pow( 10, $minor_unit );
+
+            $regular_price = '';
+            if ( isset( $item['prices']['regular_price'] ) && is_numeric( $item['prices']['regular_price'] ) ) {
+                $regular_price = number_format( (float) $item['prices']['regular_price'] / $divisor, $minor_unit, '.', '' );
+            }
+
+            $sale_price = '';
+            if ( isset( $item['prices']['sale_price'] ) && is_numeric( $item['prices']['sale_price'] ) && ! empty( $item['on_sale'] ) ) {
+                $sale_price = number_format( (float) $item['prices']['sale_price'] / $divisor, $minor_unit, '.', '' );
+            }
+
+            $price = '';
+            if ( isset( $item['prices']['price'] ) && is_numeric( $item['prices']['price'] ) ) {
+                $price = number_format( (float) $item['prices']['price'] / $divisor, $minor_unit, '.', '' );
+            } else {
+                $price = $regular_price;
+            }
+
+            $price_display = '$' . ( ! empty( $price ) ? $price : $regular_price );
+            if ( isset( $item['prices']['price_range']['min_amount'], $item['prices']['price_range']['max_amount'] ) ) {
+                $min_p = (float) $item['prices']['price_range']['min_amount'] / $divisor;
+                $max_p = (float) $item['prices']['price_range']['max_amount'] / $divisor;
+                if ( $min_p < $max_p ) {
+                    $price_display = '$' . number_format( $min_p, 2 ) . ' - $' . number_format( $max_p, 2 );
+                }
+            }
 
             // Options / Attributes
             $options = array();
             if ( ! empty( $item['attributes'] ) && is_array( $item['attributes'] ) ) {
-                foreach ( $item['attributes'] as $attr ) {
-                    $options[] = array(
-                        'name'     => isset( $attr['name'] ) ? $attr['name'] : '',
-                        'position' => isset( $attr['position'] ) ? (int) $attr['position'] : 0,
-                        'values'   => isset( $attr['options'] ) && is_array( $attr['options'] ) ? $attr['options'] : array(),
+                foreach ( $item['attributes'] as $idx => $attr ) {
+                    $attr_name = isset( $attr['name'] ) ? sanitize_text_field( $attr['name'] ) : '';
+                    $terms     = array();
+                    if ( ! empty( $attr['terms'] ) && is_array( $attr['terms'] ) ) {
+                        foreach ( $attr['terms'] as $t ) {
+                            if ( isset( $t['name'] ) ) {
+                                $terms[] = sanitize_text_field( $t['name'] );
+                            }
+                        }
+                    } elseif ( ! empty( $attr['options'] ) && is_array( $attr['options'] ) ) {
+                        $terms = array_map( 'sanitize_text_field', $attr['options'] );
+                    }
+
+                    if ( ! empty( $attr_name ) ) {
+                        $options[] = array(
+                            'name'     => $attr_name,
+                            'position' => $idx + 1,
+                            'values'   => $terms,
+                        );
+                    }
+                }
+            }
+
+            // Child Variations
+            $variants     = array();
+            $has_variants = ( $type === 'variable' || ! empty( $item['variations'] ) );
+
+            if ( ! empty( $item['variations'] ) && is_array( $item['variations'] ) ) {
+                foreach ( $item['variations'] as $v_idx => $v ) {
+                    $v_id = isset( $v['id'] ) ? (string) $v['id'] : '';
+                    
+                    // Map variation attributes to option1, option2, option3
+                    $v_attrs = array();
+                    if ( ! empty( $v['attributes'] ) && is_array( $v['attributes'] ) ) {
+                        foreach ( $v['attributes'] as $v_attr ) {
+                            if ( isset( $v_attr['name'], $v_attr['value'] ) ) {
+                                $v_attrs[ $v_attr['name'] ] = $v_attr['value'];
+                            }
+                        }
+                    }
+
+                    $opt1 = isset( $options[0]['name'] ) && isset( $v_attrs[ $options[0]['name'] ] ) ? $v_attrs[ $options[0]['name'] ] : '';
+                    $opt2 = isset( $options[1]['name'] ) && isset( $v_attrs[ $options[1]['name'] ] ) ? $v_attrs[ $options[1]['name'] ] : '';
+                    $opt3 = isset( $options[2]['name'] ) && isset( $v_attrs[ $options[2]['name'] ] ) ? $v_attrs[ $options[2]['name'] ] : '';
+
+                    $title_parts = array_filter( array( $opt1, $opt2, $opt3 ) );
+                    $v_title     = ! empty( $title_parts ) ? implode( ' / ', $title_parts ) : "Variation #$v_id";
+
+                    $variants[] = array(
+                        'id'             => $v_id,
+                        'title'          => $v_title,
+                        'option1'        => $opt1,
+                        'option2'        => $opt2,
+                        'option3'        => $opt3,
+                        'sku'            => isset( $v['sku'] ) ? $v['sku'] : '',
+                        'price'          => $price,
+                        'regular_price'  => $regular_price,
+                        'sale_price'     => $sale_price,
+                        'stock_quantity' => null,
+                        'available'      => true,
+                        'image'          => '',
                     );
                 }
             }
@@ -445,7 +465,7 @@ class WooSync_Fetcher {
             if ( ! empty( $item['categories'] ) && is_array( $item['categories'] ) ) {
                 foreach ( $item['categories'] as $cat ) {
                     if ( isset( $cat['name'] ) ) {
-                        $categories[] = $cat['name'];
+                        $categories[] = sanitize_text_field( $cat['name'] );
                     }
                 }
             }
@@ -455,7 +475,7 @@ class WooSync_Fetcher {
             if ( ! empty( $item['tags'] ) && is_array( $item['tags'] ) ) {
                 foreach ( $item['tags'] as $tg ) {
                     if ( isset( $tg['name'] ) ) {
-                        $tags[] = $tg['name'];
+                        $tags[] = sanitize_text_field( $tg['name'] );
                     }
                 }
             }
@@ -474,9 +494,6 @@ class WooSync_Fetcher {
                 }
             }
 
-            $has_variants = ( $type === 'variable' || ! empty( $item['variations'] ) );
-            $variant_count = ! empty( $item['variations'] ) && is_array( $item['variations'] ) ? count( $item['variations'] ) : ( $has_variants ? count( $options ) : 0 );
-
             // Check if product already exists locally
             $existing_id = WooSync_Importer::find_existing_product_id( $source_id, 'wordpress', $sku );
 
@@ -489,18 +506,18 @@ class WooSync_Fetcher {
                 'short_description' => $short_description,
                 'sku'               => $sku,
                 'price'             => $price,
-                'price_display'     => '$' . $price,
+                'price_display'     => $price_display,
                 'regular_price'     => $regular_price,
                 'sale_price'        => $sale_price,
-                'stock_quantity'    => $stock_quantity,
+                'stock_quantity'    => null,
                 'vendor'            => '',
                 'images'            => $images,
                 'categories'        => $categories,
                 'tags'              => $tags,
                 'options'           => $options,
-                'variants'          => array(),
+                'variants'          => $variants,
                 'has_variants'      => $has_variants,
-                'variant_count'     => $variant_count,
+                'variant_count'     => count( $variants ),
                 'is_synced'         => (bool) $existing_id,
                 'local_product_id'  => $existing_id,
                 'local_edit_url'    => $existing_id ? get_edit_post_link( $existing_id, 'raw' ) : '',

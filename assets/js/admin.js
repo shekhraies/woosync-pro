@@ -46,12 +46,7 @@
             const config = {
                 api_type: apiType,
                 shopify_url: $('#shopify_url').val().trim(),
-                admin_store_url: $('#admin_store_url').val().trim(),
-                admin_access_token: $('#admin_access_token').val().trim(),
-                admin_api_version: $('#admin_api_version').val().trim(),
-                wp_store_url: $('#wp_store_url').val().trim(),
-                wp_consumer_key: $('#wp_consumer_key').val().trim(),
-                wp_consumer_secret: $('#wp_consumer_secret').val().trim()
+                wc_store_api_url: $('#wc_store_api_url').val().trim()
             };
 
             // Client-side validation
@@ -59,12 +54,8 @@
                 showAlert('Please enter a Shopify store URL or products.json URL.', 'error');
                 return;
             }
-            if (apiType === 'shopify_admin' && (!config.admin_store_url || !config.admin_access_token)) {
-                showAlert('Please enter both Shopify Store Domain and Admin Access Token.', 'error');
-                return;
-            }
-            if (apiType === 'wordpress_wc' && !config.wp_store_url) {
-                showAlert('Please enter the remote WordPress / WooCommerce site URL.', 'error');
+            if (apiType === 'woocommerce_store_api' && !config.wc_store_api_url) {
+                showAlert('Please enter the WooCommerce Store API URL (e.g. /wp-json/wc/store/v1/products).', 'error');
                 return;
             }
 

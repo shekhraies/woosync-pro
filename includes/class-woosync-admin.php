@@ -107,17 +107,12 @@ class WooSync_Admin {
                         <label class="source-option active" data-target="panel-shopify-json">
                             <input type="radio" name="api_type" value="shopify_json" checked>
                             <span class="source-title"><strong>Shopify</strong> (Public Storefront)</span>
-                            <span class="source-desc"><?php esc_html_e( 'Direct products.json URL', 'woosync-pro' ); ?></span>
+                            <span class="source-desc"><?php esc_html_e( 'Direct products.json or single product URL', 'woosync-pro' ); ?></span>
                         </label>
-                        <label class="source-option" data-target="panel-shopify-admin">
-                            <input type="radio" name="api_type" value="shopify_admin">
-                            <span class="source-title"><strong>Shopify</strong> (Admin REST API)</span>
-                            <span class="source-desc"><?php esc_html_e( 'Using Store URL & Admin Access Token', 'woosync-pro' ); ?></span>
-                        </label>
-                        <label class="source-option" data-target="panel-wordpress-wc">
-                            <input type="radio" name="api_type" value="wordpress_wc">
-                            <span class="source-title"><strong>WordPress / WooCommerce</strong></span>
-                            <span class="source-desc"><?php esc_html_e( 'Using REST API & Consumer Keys', 'woosync-pro' ); ?></span>
+                        <label class="source-option" data-target="panel-woocommerce-store-api">
+                            <input type="radio" name="api_type" value="woocommerce_store_api">
+                            <span class="source-title"><strong>WooCommerce</strong> (Public Store API)</span>
+                            <span class="source-desc"><?php esc_html_e( 'Public /wp-json/wc/store/v1/products URL', 'woosync-pro' ); ?></span>
                         </label>
                     </div>
 
@@ -125,63 +120,23 @@ class WooSync_Admin {
                     <div class="source-panel active" id="panel-shopify-json">
                         <table class="form-table">
                             <tr>
-                                <th scope="row"><label for="shopify_url"><?php esc_html_e( 'Shopify Store, Catalog, or Single Product URL', 'woosync-pro' ); ?> <span class="required">*</span></label></th>
+                                <th scope="row"><label for="shopify_url"><?php esc_html_e( 'Shopify Store or products.json URL', 'woosync-pro' ); ?> <span class="required">*</span></label></th>
                                 <td>
-                                    <input type="url" id="shopify_url" class="regular-text" placeholder="https://shopatpulse.com/products/single-product-handle.json" style="width: 100%; max-width: 600px;">
+                                    <input type="url" id="shopify_url" class="regular-text" placeholder="https://shopatpulse.com/products/ultimate-hands-free-dog-leash-with-shock-absorbing-bungee-zipper-pouch.json" style="width: 100%; max-width: 650px;">
                                     <p class="description"><?php esc_html_e( 'Enter full catalog URL (e.g. https://shopatpulse.com/products.json) or a single product URL (e.g. https://shopatpulse.com/products/handle.json or https://store.myshopify.com).', 'woosync-pro' ); ?></p>
                                 </td>
                             </tr>
                         </table>
                     </div>
 
-                    <!-- Panel: Shopify Admin API -->
-                    <div class="source-panel" id="panel-shopify-admin" style="display:none;">
+                    <!-- Panel: WooCommerce Public Store API -->
+                    <div class="source-panel" id="panel-woocommerce-store-api" style="display:none;">
                         <table class="form-table">
                             <tr>
-                                <th scope="row"><label for="admin_store_url"><?php esc_html_e( 'Shopify Store Domain', 'woosync-pro' ); ?> <span class="required">*</span></label></th>
+                                <th scope="row"><label for="wc_store_api_url"><?php esc_html_e( 'WooCommerce Store API Endpoint', 'woosync-pro' ); ?> <span class="required">*</span></label></th>
                                 <td>
-                                    <input type="text" id="admin_store_url" class="regular-text" placeholder="your-store.myshopify.com">
-                                    <p class="description"><?php esc_html_e( 'Your myshopify domain (e.g., storename.myshopify.com).', 'woosync-pro' ); ?></p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <th scope="row"><label for="admin_access_token"><?php esc_html_e( 'Admin API Access Token', 'woosync-pro' ); ?> <span class="required">*</span></label></th>
-                                <td>
-                                    <input type="password" id="admin_access_token" class="regular-text" placeholder="shpat_xxxxxxxxxxxxxxxxx">
-                                    <p class="description"><?php esc_html_e( 'Admin API token created from Shopify App Settings (needs read_products scope).', 'woosync-pro' ); ?></p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <th scope="row"><label for="admin_api_version"><?php esc_html_e( 'API Version', 'woosync-pro' ); ?></label></th>
-                                <td>
-                                    <input type="text" id="admin_api_version" class="small-text" value="2024-01">
-                                    <p class="description"><?php esc_html_e( 'e.g. 2024-01', 'woosync-pro' ); ?></p>
-                                </td>
-                            </tr>
-                        </table>
-                    </div>
-
-                    <!-- Panel: WordPress / WooCommerce REST API -->
-                    <div class="source-panel" id="panel-wordpress-wc" style="display:none;">
-                        <table class="form-table">
-                            <tr>
-                                <th scope="row"><label for="wp_store_url"><?php esc_html_e( 'Remote WordPress URL', 'woosync-pro' ); ?> <span class="required">*</span></label></th>
-                                <td>
-                                    <input type="url" id="wp_store_url" class="regular-text" placeholder="https://example.com" style="width: 100%; max-width: 550px;">
-                                    <p class="description"><?php esc_html_e( 'Base URL of the WordPress / WooCommerce website to import from.', 'woosync-pro' ); ?></p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <th scope="row"><label for="wp_consumer_key"><?php esc_html_e( 'WooCommerce Consumer Key', 'woosync-pro' ); ?></label></th>
-                                <td>
-                                    <input type="text" id="wp_consumer_key" class="regular-text" placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxx">
-                                    <p class="description"><?php esc_html_e( 'Generated from WooCommerce > Settings > Advanced > REST API on remote store.', 'woosync-pro' ); ?></p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <th scope="row"><label for="wp_consumer_secret"><?php esc_html_e( 'WooCommerce Consumer Secret', 'woosync-pro' ); ?></label></th>
-                                <td>
-                                    <input type="password" id="wp_consumer_secret" class="regular-text" placeholder="cs_xxxxxxxxxxxxxxxxxxxxxxxx">
+                                    <input type="url" id="wc_store_api_url" class="regular-text" placeholder="https://flattered-ensure-amendment.ngrok-free.dev/wp-json/wc/store/v1/products" style="width: 100%; max-width: 650px;">
+                                    <p class="description"><?php esc_html_e( 'Enter the public Store API products endpoint (e.g. https://example.com/wp-json/wc/store/v1/products) or single product endpoint.', 'woosync-pro' ); ?></p>
                                 </td>
                             </tr>
                         </table>
