@@ -1,9 +1,9 @@
 <?php
 /**
  * Plugin Name: WooSync Pro
- * Plugin URI: https://github.com/
+ * Plugin URI: https://github.com/shekhraies/woosync-pro
  * Description: Connect to Shopify or WordPress/WooCommerce APIs, preview remote catalog items, and sync them directly into your WooCommerce store with intelligent create/update (upsert) support.
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: Shekh Raies
  * Text Domain: woosync-pro
  * Requires at least: 5.8
@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin Constants
-define( 'WOOSYNC_VERSION', '1.1.0' );
+define( 'WOOSYNC_VERSION', '1.2.0' );
 define( 'WOOSYNC_FILE', __FILE__ );
 define( 'WOOSYNC_PATH', plugin_dir_path( __FILE__ ) );
 define( 'WOOSYNC_URL', plugin_dir_url( __FILE__ ) );
