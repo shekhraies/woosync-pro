@@ -44,15 +44,37 @@ class WooSync_Fetcher {
      * @param array $config
      * @return array|WP_Error
      */
+    /**
+     * Fetch products from Shopify Public Storefront JSON (catalog or single product).
+     *
+     * @param array $config
+     * @return array|WP_Error
+     */
     private static function fetch_shopify_json( $config ) {
         $url = isset( $config['shopify_url'] ) ? esc_url_raw( trim( $config['shopify_url'] ) ) : '';
         if ( empty( $url ) ) {
-            return new WP_Error( 'missing_url', __( 'Please provide a valid Shopify Store URL or products.json URL.', 'woosync-pro' ) );
+            return new WP_Error( 'missing_url', __( 'Please provide a valid Shopify Store URL, products.json, or single product URL.', 'woosync-pro' ) );
         }
 
-        // Ensure URL points to products.json
-        if ( ! preg_match( '/products\.json(\?.*)?$/i', $url ) ) {
-            $url = rtrim( $url, '/' ) . '/products.json?limit=50';
+        // Clean query strings for pattern checking
+        $url_parts = explode( '?', $url );
+        $base_path = rtrim( $url_parts[0], '/' );
+        $query_str = isset( $url_parts[1] ) ? '?' . $url_parts[1] : '';
+
+        // Case 1: Single product URL like .../products/product-handle.json or .../products/product-handle
+        if ( preg_match( '#/products/([a-zA-Z0-9\-_]+)(\.json)?$#i', $base_path, $matches ) ) {
+            if ( strtolower( substr( $base_path, -5 ) ) !== '.json' ) {
+                $base_path .= '.json';
+            }
+            $url = $base_path . $query_str;
+        }
+        // Case 2: Products collection / catalog like .../products.json or .../collections/.../products.json
+        elseif ( preg_match( '#/products\.json$#i', $base_path ) ) {
+            $url = $base_path . ( empty( $query_str ) ? '?limit=50' : $query_str );
+        }
+        // Case 3: Base store URL (e.g. https://mystore.myshopify.com)
+        else {
+            $url = $base_path . '/products.json' . ( empty( $query_str ) ? '?limit=50' : $query_str );
         }
 
         $response = wp_remote_get( $url, array(
@@ -75,11 +97,26 @@ class WooSync_Fetcher {
         $body = wp_remote_retrieve_body( $response );
         $data = json_decode( $body, true );
 
-        if ( empty( $data ) || ! isset( $data['products'] ) || ! is_array( $data['products'] ) ) {
-            return new WP_Error( 'no_products', __( 'No products found at the specified Shopify endpoint.', 'woosync-pro' ) );
+        if ( empty( $data ) ) {
+            return new WP_Error( 'no_products', __( 'No data returned from Shopify endpoint.', 'woosync-pro' ) );
         }
 
-        return self::normalize_shopify_products( $data['products'] );
+        // Handle multiple products: {"products": [...]}
+        if ( isset( $data['products'] ) && is_array( $data['products'] ) ) {
+            return self::normalize_shopify_products( $data['products'] );
+        }
+
+        // Handle single product: {"product": {...}}
+        if ( isset( $data['product'] ) && is_array( $data['product'] ) ) {
+            return self::normalize_shopify_products( array( $data['product'] ) );
+        }
+
+        // Handle direct array of products: [ {...}, {...} ]
+        if ( is_array( $data ) && isset( $data[0]['id'] ) ) {
+            return self::normalize_shopify_products( $data );
+        }
+
+        return new WP_Error( 'no_products', __( 'No products found at the specified Shopify endpoint.', 'woosync-pro' ) );
     }
 
     /**
@@ -124,11 +161,15 @@ class WooSync_Fetcher {
         $body = wp_remote_retrieve_body( $response );
         $data = json_decode( $body, true );
 
-        if ( empty( $data['products'] ) || ! is_array( $data['products'] ) ) {
-            return new WP_Error( 'no_products', __( 'No products found in this Shopify store.', 'woosync-pro' ) );
+        if ( isset( $data['products'] ) && is_array( $data['products'] ) ) {
+            return self::normalize_shopify_products( $data['products'] );
         }
 
-        return self::normalize_shopify_products( $data['products'] );
+        if ( isset( $data['product'] ) && is_array( $data['product'] ) ) {
+            return self::normalize_shopify_products( array( $data['product'] ) );
+        }
+
+        return new WP_Error( 'no_products', __( 'No products found in this Shopify store.', 'woosync-pro' ) );
     }
 
     /**
@@ -146,7 +187,12 @@ class WooSync_Fetcher {
             return new WP_Error( 'missing_url', __( 'Please provide the remote WordPress / WooCommerce site URL.', 'woosync-pro' ) );
         }
 
-        $endpoint = rtrim( $store_url, '/' ) . '/wp-json/wc/v3/products?per_page=50';
+        $cleaned_url = rtrim( $store_url, '/' );
+        if ( strpos( $cleaned_url, '/wp-json/wc/' ) !== false ) {
+            $endpoint = $cleaned_url;
+        } else {
+            $endpoint = $cleaned_url . '/wp-json/wc/v3/products?per_page=50';
+        }
 
         $args = array(
             'timeout'    => 30,
@@ -177,11 +223,19 @@ class WooSync_Fetcher {
         $body = wp_remote_retrieve_body( $response );
         $data = json_decode( $body, true );
 
-        if ( empty( $data ) || ! is_array( $data ) ) {
+        if ( empty( $data ) ) {
             return new WP_Error( 'no_products', __( 'No products found on the remote WooCommerce store.', 'woosync-pro' ) );
         }
 
-        return self::normalize_woocommerce_products( $data );
+        if ( isset( $data['id'] ) && ! empty( $data['id'] ) ) {
+            return self::normalize_woocommerce_products( array( $data ) );
+        }
+
+        if ( is_array( $data ) && ! empty( $data ) ) {
+            return self::normalize_woocommerce_products( $data );
+        }
+
+        return new WP_Error( 'no_products', __( 'No products found on the remote WooCommerce store.', 'woosync-pro' ) );
     }
 
     /**

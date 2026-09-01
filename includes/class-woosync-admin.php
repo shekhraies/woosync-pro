@@ -125,10 +125,10 @@ class WooSync_Admin {
                     <div class="source-panel active" id="panel-shopify-json">
                         <table class="form-table">
                             <tr>
-                                <th scope="row"><label for="shopify_url"><?php esc_html_e( 'Shopify Store or products.json URL', 'woosync-pro' ); ?> <span class="required">*</span></label></th>
+                                <th scope="row"><label for="shopify_url"><?php esc_html_e( 'Shopify Store, Catalog, or Single Product URL', 'woosync-pro' ); ?> <span class="required">*</span></label></th>
                                 <td>
-                                    <input type="url" id="shopify_url" class="regular-text" placeholder="https://shopatpulse.com/products.json" style="width: 100%; max-width: 550px;">
-                                    <p class="description"><?php esc_html_e( 'Enter your Shopify store URL (e.g. https://mystore.myshopify.com) or direct /products.json link.', 'woosync-pro' ); ?></p>
+                                    <input type="url" id="shopify_url" class="regular-text" placeholder="https://shopatpulse.com/products/single-product-handle.json" style="width: 100%; max-width: 600px;">
+                                    <p class="description"><?php esc_html_e( 'Enter full catalog URL (e.g. https://shopatpulse.com/products.json) or a single product URL (e.g. https://shopatpulse.com/products/handle.json or https://store.myshopify.com).', 'woosync-pro' ); ?></p>
                                 </td>
                             </tr>
                         </table>
