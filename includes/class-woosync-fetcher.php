@@ -3,7 +3,7 @@
  * WooSync API Fetcher
  *
  * Handles API connections to Shopify and WordPress / WooCommerce,
- * and normalizes product data into a standardized structure.
+ * and normalizes product data (including multi-option variants) into a standardized structure.
  *
  * @package WooSync_Pro
  */
@@ -97,7 +97,7 @@ class WooSync_Fetcher {
             return new WP_Error( 'missing_credentials', __( 'Store URL and Admin API Access Token are required.', 'woosync-pro' ) );
         }
 
-        // Clean store URL (remove protocol if user included it)
+        // Clean store URL
         $store_domain = preg_replace( '#^https?://#', '', rtrim( $store_url, '/' ) );
         $endpoint     = 'https://' . $store_domain . '/admin/api/' . $api_version . '/products.json?limit=50';
 
@@ -156,7 +156,6 @@ class WooSync_Fetcher {
             ),
         );
 
-        // Add credentials if provided
         if ( ! empty( $consumer_key ) && ! empty( $consumer_secret ) ) {
             $args['headers']['Authorization'] = 'Basic ' . base64_encode( $consumer_key . ':' . $consumer_secret );
         }
@@ -186,7 +185,7 @@ class WooSync_Fetcher {
     }
 
     /**
-     * Normalize Shopify product data to uniform structure.
+     * Normalize Shopify product data (with options and variants) to uniform structure.
      *
      * @param array $products Raw products from Shopify.
      * @return array
@@ -203,20 +202,101 @@ class WooSync_Fetcher {
             $type      = isset( $item['product_type'] ) ? $item['product_type'] : '';
             $tags      = isset( $item['tags'] ) ? ( is_array( $item['tags'] ) ? $item['tags'] : array_map( 'trim', explode( ',', (string) $item['tags'] ) ) ) : array();
 
-            // Variants
-            $first_variant  = ! empty( $item['variants'][0] ) ? $item['variants'][0] : array();
-            $sku            = isset( $first_variant['sku'] ) ? $first_variant['sku'] : '';
-            $price          = isset( $first_variant['price'] ) ? (string) $first_variant['price'] : '0.00';
-            $compare_price  = isset( $first_variant['compare_at_price'] ) && ! empty( $first_variant['compare_at_price'] ) ? (string) $first_variant['compare_at_price'] : '';
-            $stock_quantity = isset( $first_variant['inventory_quantity'] ) ? (int) $first_variant['inventory_quantity'] : null;
+            // Extract Options
+            $options = array();
+            if ( ! empty( $item['options'] ) && is_array( $item['options'] ) ) {
+                foreach ( $item['options'] as $opt ) {
+                    $opt_name = isset( $opt['name'] ) ? sanitize_text_field( $opt['name'] ) : '';
+                    $opt_values = isset( $opt['values'] ) && is_array( $opt['values'] ) ? array_map( 'sanitize_text_field', $opt['values'] ) : array();
+                    if ( ! empty( $opt_name ) ) {
+                        $options[] = array(
+                            'name'     => $opt_name,
+                            'position' => isset( $opt['position'] ) ? (int) $opt['position'] : 1,
+                            'values'   => $opt_values,
+                        );
+                    }
+                }
+            }
 
-            // In Shopify: compare_at_price is the original regular price, price is the current/sale price
-            if ( ! empty( $compare_price ) && (float) $compare_price > (float) $price ) {
-                $regular_price = $compare_price;
-                $sale_price    = $price;
-            } else {
-                $regular_price = $price;
-                $sale_price    = '';
+            // Extract Variants
+            $variants     = array();
+            $prices       = array();
+            $has_variants = false;
+
+            if ( ! empty( $item['variants'] ) && is_array( $item['variants'] ) ) {
+                foreach ( $item['variants'] as $v ) {
+                    $v_id        = isset( $v['id'] ) ? (string) $v['id'] : '';
+                    $v_title     = isset( $v['title'] ) ? sanitize_text_field( $v['title'] ) : '';
+                    $v_sku       = isset( $v['sku'] ) ? sanitize_text_field( $v['sku'] ) : '';
+                    $v_price     = isset( $v['price'] ) ? (string) $v['price'] : '0.00';
+                    $v_compare   = isset( $v['compare_at_price'] ) && ! empty( $v['compare_at_price'] ) ? (string) $v['compare_at_price'] : '';
+                    $v_stock     = isset( $v['inventory_quantity'] ) ? (int) $v['inventory_quantity'] : null;
+                    $v_available = isset( $v['available'] ) ? (bool) $v['available'] : true;
+
+                    if ( ! empty( $v_compare ) && (float) $v_compare > (float) $v_price ) {
+                        $v_reg_price  = $v_compare;
+                        $v_sale_price = $v_price;
+                    } else {
+                        $v_reg_price  = $v_price;
+                        $v_sale_price = '';
+                    }
+
+                    if ( is_numeric( $v_price ) ) {
+                        $prices[] = (float) $v_price;
+                    }
+
+                    // Variant image resolution
+                    $v_img = '';
+                    if ( ! empty( $v['featured_image']['src'] ) ) {
+                        $v_img = $v['featured_image']['src'];
+                    } elseif ( ! empty( $v['image_id'] ) && ! empty( $item['images'] ) ) {
+                        foreach ( $item['images'] as $img_obj ) {
+                            if ( isset( $img_obj['id'] ) && (string) $img_obj['id'] === (string) $v['image_id'] && ! empty( $img_obj['src'] ) ) {
+                                $v_img = $img_obj['src'];
+                                break;
+                            }
+                        }
+                    }
+
+                    $variants[] = array(
+                        'id'             => $v_id,
+                        'title'          => $v_title,
+                        'option1'        => isset( $v['option1'] ) ? sanitize_text_field( $v['option1'] ) : '',
+                        'option2'        => isset( $v['option2'] ) ? sanitize_text_field( $v['option2'] ) : '',
+                        'option3'        => isset( $v['option3'] ) ? sanitize_text_field( $v['option3'] ) : '',
+                        'sku'            => $v_sku,
+                        'price'          => $v_price,
+                        'regular_price'  => $v_reg_price,
+                        'sale_price'     => $v_sale_price,
+                        'stock_quantity' => $v_stock,
+                        'available'      => $v_available,
+                        'image'          => $v_img,
+                    );
+                }
+            }
+
+            // In Shopify, multiple variants or non-default single variant means Variable product
+            if ( count( $variants ) > 1 ) {
+                $has_variants = true;
+            } elseif ( count( $variants ) === 1 && $variants[0]['title'] !== 'Default Title' && ! empty( $options ) && count( $options ) > 0 && strtolower( $options[0]['name'] ) !== 'title' ) {
+                $has_variants = true;
+            }
+
+            // Pricing range & base price calculation
+            $first_variant  = ! empty( $variants[0] ) ? $variants[0] : array();
+            $main_sku       = ! empty( $first_variant['sku'] ) ? $first_variant['sku'] : '';
+            $regular_price  = ! empty( $first_variant['regular_price'] ) ? $first_variant['regular_price'] : '0.00';
+            $sale_price     = ! empty( $first_variant['sale_price'] ) ? $first_variant['sale_price'] : '';
+            $price          = ! empty( $first_variant['price'] ) ? $first_variant['price'] : $regular_price;
+            $stock_quantity = isset( $first_variant['stock_quantity'] ) ? $first_variant['stock_quantity'] : null;
+
+            $price_display = '$' . $price;
+            if ( ! empty( $prices ) ) {
+                $min_p = min( $prices );
+                $max_p = max( $prices );
+                if ( $min_p < $max_p ) {
+                    $price_display = '$' . number_format( $min_p, 2 ) . ' - $' . number_format( $max_p, 2 );
+                }
             }
 
             // Images
@@ -233,14 +313,14 @@ class WooSync_Fetcher {
                 }
             }
 
-            // Categories / Tags
+            // Categories
             $categories = array();
             if ( ! empty( $type ) ) {
                 $categories[] = $type;
             }
 
             // Check if product already exists locally
-            $existing_id = WooSync_Importer::find_existing_product_id( $source_id, 'shopify', $sku );
+            $existing_id = WooSync_Importer::find_existing_product_id( $source_id, 'shopify', $main_sku );
 
             $normalized[] = array(
                 'source_id'         => $source_id,
@@ -249,8 +329,9 @@ class WooSync_Fetcher {
                 'handle'            => $handle,
                 'description'       => $body_html,
                 'short_description' => '',
-                'sku'               => $sku,
+                'sku'               => $main_sku,
                 'price'             => $price,
+                'price_display'     => $price_display,
                 'regular_price'     => $regular_price,
                 'sale_price'        => $sale_price,
                 'stock_quantity'    => $stock_quantity,
@@ -258,6 +339,10 @@ class WooSync_Fetcher {
                 'images'            => $images,
                 'categories'        => $categories,
                 'tags'              => $tags,
+                'options'           => $options,
+                'variants'          => $variants,
+                'has_variants'      => $has_variants,
+                'variant_count'     => count( $variants ),
                 'is_synced'         => (bool) $existing_id,
                 'local_product_id'  => $existing_id,
                 'local_edit_url'    => $existing_id ? get_edit_post_link( $existing_id, 'raw' ) : '',
@@ -287,6 +372,19 @@ class WooSync_Fetcher {
             $sale_price        = isset( $item['sale_price'] ) ? (string) $item['sale_price'] : '';
             $price             = isset( $item['price'] ) ? (string) $item['price'] : $regular_price;
             $stock_quantity    = isset( $item['stock_quantity'] ) ? (int) $item['stock_quantity'] : null;
+            $type              = isset( $item['type'] ) ? $item['type'] : 'simple';
+
+            // Options / Attributes
+            $options = array();
+            if ( ! empty( $item['attributes'] ) && is_array( $item['attributes'] ) ) {
+                foreach ( $item['attributes'] as $attr ) {
+                    $options[] = array(
+                        'name'     => isset( $attr['name'] ) ? $attr['name'] : '',
+                        'position' => isset( $attr['position'] ) ? (int) $attr['position'] : 0,
+                        'values'   => isset( $attr['options'] ) && is_array( $attr['options'] ) ? $attr['options'] : array(),
+                    );
+                }
+            }
 
             // Categories
             $categories = array();
@@ -322,6 +420,9 @@ class WooSync_Fetcher {
                 }
             }
 
+            $has_variants = ( $type === 'variable' || ! empty( $item['variations'] ) );
+            $variant_count = ! empty( $item['variations'] ) && is_array( $item['variations'] ) ? count( $item['variations'] ) : ( $has_variants ? count( $options ) : 0 );
+
             // Check if product already exists locally
             $existing_id = WooSync_Importer::find_existing_product_id( $source_id, 'wordpress', $sku );
 
@@ -334,6 +435,7 @@ class WooSync_Fetcher {
                 'short_description' => $short_description,
                 'sku'               => $sku,
                 'price'             => $price,
+                'price_display'     => '$' . $price,
                 'regular_price'     => $regular_price,
                 'sale_price'        => $sale_price,
                 'stock_quantity'    => $stock_quantity,
@@ -341,6 +443,10 @@ class WooSync_Fetcher {
                 'images'            => $images,
                 'categories'        => $categories,
                 'tags'              => $tags,
+                'options'           => $options,
+                'variants'          => array(),
+                'has_variants'      => $has_variants,
+                'variant_count'     => $variant_count,
                 'is_synced'         => (bool) $existing_id,
                 'local_product_id'  => $existing_id,
                 'local_edit_url'    => $existing_id ? get_edit_post_link( $existing_id, 'raw' ) : '',

@@ -256,11 +256,11 @@
 }
 
 .col-sku {
-    width: 110px;
+    width: 120px;
 }
 
 .col-price {
-    width: 90px;
+    width: 120px;
 }
 
 .col-status {
@@ -299,7 +299,20 @@
     margin-bottom: 2px;
 }
 
+.product-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 3px;
+}
+
 .product-vendor-meta {
+    font-size: 11px;
+    color: #646970;
+}
+
+.product-options-meta {
     font-size: 11px;
     color: #646970;
 }
@@ -338,6 +351,17 @@
     background: #fce8e6;
     color: #c5221f;
     border: 1px solid #fad2cf;
+}
+
+.badge-variant {
+    background: #f1f0f5;
+    color: #6332bb;
+    border: 1px solid #ddd6fe;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
 }
 
 /* Activity Log */

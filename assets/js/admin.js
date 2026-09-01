@@ -8,7 +8,7 @@
     let fetchedProducts = [];
     let selectedIndices = [];
     let isSyncing = false;
-    let syncCounters = { created: 0, updated: 0, failed: 0 };
+    let syncCounters = { created: 0, updated: 0, failed: 0, variations: 0 };
 
     $(document).ready(function() {
         initSourceSelector();
@@ -137,10 +137,27 @@
 
             // Pricing
             let priceHtml = '$0.00';
-            if (product.sale_price) {
+            if (product.price_display) {
+                priceHtml = escapeHtml(product.price_display);
+            } else if (product.sale_price) {
                 priceHtml = `<del>$${escapeHtml(product.regular_price)}</del> <ins style="color:#d63638; text-decoration:none; font-weight:bold;">$${escapeHtml(product.sale_price)}</ins>`;
             } else if (product.regular_price || product.price) {
                 priceHtml = `$${escapeHtml(product.regular_price || product.price)}`;
+            }
+
+            // Options & Variant badges
+            let variantBadgeHtml = '';
+            if (product.has_variants) {
+                const varCount = product.variant_count || (product.variants ? product.variants.length : 0);
+                variantBadgeHtml += `<span class="badge-variant" title="${varCount} variations">${varCount} Variants</span> `;
+            }
+
+            let optionsHtml = '';
+            if (product.options && product.options.length > 0) {
+                const optionNames = product.options.map(function(o) { return o.name; }).join(', ');
+                if (optionNames && optionNames.toLowerCase() !== 'title') {
+                    optionsHtml = `<span class="product-options-meta">(${escapeHtml(optionNames)})</span>`;
+                }
             }
 
             // Status Badge
@@ -159,7 +176,11 @@
                     <td class="col-thumb">${imgHtml}</td>
                     <td class="col-title">
                         <div class="product-title-text">${escapeHtml(product.title)}</div>
-                        ${product.vendor ? `<div class="product-vendor-meta">Vendor: ${escapeHtml(product.vendor)}</div>` : ''}
+                        <div class="product-meta-row">
+                            ${variantBadgeHtml}
+                            ${optionsHtml}
+                            ${product.vendor ? `<span class="product-vendor-meta">Vendor: ${escapeHtml(product.vendor)}</span>` : ''}
+                        </div>
                     </td>
                     <td class="col-source"><code>#${escapeHtml(product.source_id)}</code></td>
                     <td class="col-sku">${product.sku ? `<code>${escapeHtml(product.sku)}</code>` : '<span style="color:#a7aaad;">N/A</span>'}</td>
@@ -296,7 +317,7 @@
 
             // Start batch sync
             isSyncing = true;
-            syncCounters = { created: 0, updated: 0, failed: 0 };
+            syncCounters = { created: 0, updated: 0, failed: 0, variations: 0 };
             
             $('#btn-sync-selected, #btn-fetch-products, #btn-select-unsynced, #btn-deselect-all, .btn-single-sync, .product-item-cb, #select-all-cb').prop('disabled', true);
             $('#sync-progress-wrap').slideDown();
@@ -325,7 +346,7 @@
                 .replace('%3$d', syncCounters.updated)
                 .replace('%4$d', syncCounters.failed);
             
-            $('#progress-status-text').text(msg);
+            $('#progress-status-text').text(msg + (syncCounters.variations > 0 ? ` (Total ${syncCounters.variations} variations synced)` : ''));
             
             $('#btn-sync-selected, #btn-fetch-products, #btn-select-unsynced, #btn-deselect-all, .btn-single-sync, .product-item-cb, #select-all-cb').prop('disabled', false);
             updateSummaryStats();
@@ -350,15 +371,20 @@
                 product.local_product_id = res.product_id;
                 product.local_edit_url = res.edit_url;
 
+                const varInfo = res.variations_synced ? ` [${res.variations_synced} variations]` : '';
+                if (res.variations_synced) {
+                    syncCounters.variations += res.variations_synced;
+                }
+
                 if (res.action === 'updated') {
                     syncCounters.updated++;
-                    logHtml = `<li class="log-update">[${timeStr}] ⟳ Updated product: <strong>${escapeHtml(product.title)}</strong> (Woo ID: #${res.product_id}, Source ID: #${product.source_id})</li>`;
+                    logHtml = `<li class="log-update">[${timeStr}] ⟳ Updated product: <strong>${escapeHtml(product.title)}</strong>${varInfo} (Woo ID: #${res.product_id}, Source ID: #${product.source_id})</li>`;
                     $(`#badge-${productIndex}`).replaceWith(
                         `<a href="${res.edit_url}" target="_blank" class="woosync-badge badge-updated" id="badge-${productIndex}">✓ Updated (#${res.product_id})</a>`
                     );
                 } else {
                     syncCounters.created++;
-                    logHtml = `<li class="log-success">[${timeStr}] ✓ Created product: <strong>${escapeHtml(product.title)}</strong> (Woo ID: #${res.product_id}, Source ID: #${product.source_id})</li>`;
+                    logHtml = `<li class="log-success">[${timeStr}] ✓ Created product: <strong>${escapeHtml(product.title)}</strong>${varInfo} (Woo ID: #${res.product_id}, Source ID: #${product.source_id})</li>`;
                     $(`#badge-${productIndex}`).replaceWith(
                         `<a href="${res.edit_url}" target="_blank" class="woosync-badge badge-synced" id="badge-${productIndex}">✓ Synced (#${res.product_id})</a>`
                     );
@@ -398,6 +424,8 @@
                         success: true,
                         action: response.data.action,
                         product_id: response.data.product_id,
+                        is_variable: response.data.is_variable,
+                        variations_synced: response.data.variations_synced || 0,
                         edit_url: response.data.edit_url
                     });
                 } else {
