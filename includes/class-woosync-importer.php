@@ -209,12 +209,14 @@ class WooSync_Importer {
                     continue;
                 }
 
+                $is_user_type = in_array( strtolower( trim( $opt_name ) ), array( 'user type', 'user_type', 'usertype' ) );
+
                 $attribute = new WC_Product_Attribute();
                 $attribute->set_id( 0 );
                 $attribute->set_name( $opt_name );
                 $attribute->set_options( $opt['values'] );
                 $attribute->set_position( isset( $opt['position'] ) ? (int) $opt['position'] : $idx );
-                $attribute->set_visible( true );
+                $attribute->set_visible( ! $is_user_type );
                 $attribute->set_variation( true );
                 $wc_attributes[ sanitize_title( $opt_name ) ] = $attribute;
             }
@@ -421,11 +423,90 @@ class WooSync_Importer {
             }
         }
 
+        // Set Default Form Values (Default Variation Attributes) prioritizing first VIP Price variant
+        $default_attributes = self::determine_default_attributes( $variants, $options );
+        if ( ! empty( $default_attributes ) ) {
+            $parent_product = wc_get_product( $parent_id );
+            if ( $parent_product && $parent_product->is_type( 'variable' ) ) {
+                $parent_product->set_default_attributes( $default_attributes );
+                $parent_product->save();
+            }
+        }
+
         // Sync parent variable product data & cache
         WC_Product_Variable::sync( $parent_id );
         wc_delete_product_transients( $parent_id );
 
         return $count;
+    }
+
+    /**
+     * Determine default attributes for variable product, prioritizing first VIP Price variant.
+     *
+     * @param array $variants
+     * @param array $options
+     * @return array
+     */
+    private static function determine_default_attributes( $variants, $options ) {
+        if ( empty( $variants ) || empty( $options ) ) {
+            return array();
+        }
+
+        $selected_variant = null;
+
+        // 1. Prioritize first variant that has VIP in title or option values
+        foreach ( $variants as $v ) {
+            $is_vip = false;
+            if ( ! empty( $v['title'] ) && stripos( $v['title'], 'VIP' ) !== false ) {
+                $is_vip = true;
+            }
+            for ( $i = 1; $i <= 3; $i++ ) {
+                if ( ! empty( $v[ 'option' . $i ] ) && stripos( $v[ 'option' . $i ], 'VIP' ) !== false ) {
+                    $is_vip = true;
+                }
+            }
+            if ( $is_vip ) {
+                $selected_variant = $v;
+                break;
+            }
+        }
+
+        // 2. Fallback to the very first variant
+        if ( ! $selected_variant && ! empty( $variants[0] ) ) {
+            $selected_variant = $variants[0];
+        }
+
+        if ( ! $selected_variant ) {
+            return array();
+        }
+
+        $option_map = array();
+        foreach ( $options as $idx => $opt ) {
+            $option_map[ $idx + 1 ] = $opt['name'];
+        }
+
+        $default_attributes = array();
+
+        for ( $i = 1; $i <= 3; $i++ ) {
+            $opt_val = isset( $selected_variant[ 'option' . $i ] ) ? $selected_variant[ 'option' . $i ] : '';
+            if ( ! empty( $opt_val ) && isset( $option_map[ $i ] ) ) {
+                $attr_slug = sanitize_title( $option_map[ $i ] );
+                $default_attributes[ $attr_slug ] = sanitize_text_field( $opt_val );
+            }
+        }
+
+        // Fallback: parse from title if individual options weren't set
+        if ( empty( $default_attributes ) && ! empty( $selected_variant['title'] ) && $selected_variant['title'] !== 'Default Title' ) {
+            $parts = array_map( 'trim', explode( '/', $selected_variant['title'] ) );
+            foreach ( $parts as $p_idx => $val ) {
+                if ( isset( $options[ $p_idx ]['name'] ) ) {
+                    $attr_slug = sanitize_title( $options[ $p_idx ]['name'] );
+                    $default_attributes[ $attr_slug ] = sanitize_text_field( $val );
+                }
+            }
+        }
+
+        return $default_attributes;
     }
 
     /**

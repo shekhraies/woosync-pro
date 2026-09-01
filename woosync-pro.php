@@ -79,6 +79,10 @@ class WooSync_Pro {
 
         $this->load_dependencies();
 
+        // Frontend hooks: Hide User Type on product details page
+        add_action( 'wp_head', array( $this, 'hide_user_type_frontend_css' ) );
+        add_action( 'wp_footer', array( $this, 'hide_user_type_frontend_js' ) );
+
         // Initialize Admin
         if ( is_admin() ) {
             new WooSync_Admin();
@@ -103,6 +107,64 @@ class WooSync_Pro {
             <p><strong><?php esc_html_e( 'WooSync Pro:', 'woosync-pro' ); ?></strong> <?php esc_html_e( 'WooCommerce must be installed and activated for WooSync Pro to function.', 'woosync-pro' ); ?></p>
         </div>
         <?php
+    }
+
+    /**
+     * Hide User Type attribute and variation row from product details page.
+     */
+    public function hide_user_type_frontend_css() {
+        if ( is_singular( 'product' ) ) {
+            ?>
+            <style id="woosync-hide-user-type-css">
+                /* Hide User Type from Additional Information specifications tab */
+                .woocommerce-product-attributes-item--attribute_pa_user-type,
+                .woocommerce-product-attributes-item--attribute_user-type,
+                .woocommerce-product-attributes-item--attribute_pa_user_type,
+                .woocommerce-product-attributes-item--attribute_user_type {
+                    display: none !important;
+                }
+
+                /* Hide User Type variation form row on product page */
+                .variations tr:has(select[name*="user-type"]),
+                .variations tr:has(select[name*="user_type"]),
+                .variations tr:has(select[name*="usertype"]),
+                .variations tr:has([data-attribute_name*="user-type"]),
+                .variations tr:has([data-attribute_name*="user_type"]),
+                .variations div:has(select[name*="user-type"]),
+                .variations div:has(select[name*="user_type"]) {
+                    display: none !important;
+                }
+            </style>
+            <?php
+        }
+    }
+
+    /**
+     * Fallback script to ensure User Type variation row is hidden across themes.
+     */
+    public function hide_user_type_frontend_js() {
+        if ( is_singular( 'product' ) ) {
+            ?>
+            <script id="woosync-hide-user-type-js">
+                (function() {
+                    function hideUserTypeRow() {
+                        var selects = document.querySelectorAll('select[name*="user-type"], select[name*="user_type"], select[name*="usertype"]');
+                        for (var i = 0; i < selects.length; i++) {
+                            var row = selects[i].closest('tr, .form-row, .variations_row, .wc-variation-row');
+                            if (row) {
+                                row.style.display = 'none';
+                            }
+                        }
+                    }
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', hideUserTypeRow);
+                    } else {
+                        hideUserTypeRow();
+                    }
+                })();
+            </script>
+            <?php
+        }
     }
 }
 
