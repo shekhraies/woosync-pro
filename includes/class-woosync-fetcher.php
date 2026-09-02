@@ -116,6 +116,11 @@ class WooSync_Fetcher {
     /**
      * Fetch products from WooCommerce Public Store API (/wp-json/wc/store/v1/products).
      *
+     * Automatically paginates through the entire remote catalog (not just the first
+     * page) by following the Store API's X-WP-TotalPages response header, so stores
+     * with more products than a single page (default/max 100 per request) are fully
+     * synced instead of silently truncated to the first page.
+     *
      * @param array $config
      * @return array|WP_Error
      */
@@ -128,53 +133,106 @@ class WooSync_Fetcher {
         $cleaned_url = rtrim( $url, '/' );
         $url_parts   = explode( '?', $cleaned_url );
         $base_path   = $url_parts[0];
-        $query_str   = isset( $url_parts[1] ) ? '?' . $url_parts[1] : '';
+        $query_str   = isset( $url_parts[1] ) ? $url_parts[1] : '';
 
-        // If user provided a base store URL (e.g. https://example.com)
+        // If user provided a base store URL (e.g. https://example.com), normalize it
+        // to the Store API products endpoint.
         if ( strpos( $base_path, '/wp-json/' ) === false ) {
-            $endpoint = $base_path . '/wp-json/wc/store/v1/products' . ( empty( $query_str ) ? '?per_page=50' : $query_str );
-        } else {
-            $endpoint = $url;
+            $base_path .= '/wp-json/wc/store/v1/products';
         }
 
-        $response = wp_remote_get( $endpoint, array(
-            'timeout'    => 30,
-            'user-agent' => 'WooSync Pro Importer/' . WOOSYNC_VERSION,
-            'headers'    => array(
-                'Accept' => 'application/json',
-            ),
-        ) );
-
-        if ( is_wp_error( $response ) ) {
-            return $response;
+        // Preserve any query args the user supplied (e.g. a category filter), and
+        // treat an explicit page/per_page as the caller pinning a single page.
+        $query_args = array();
+        if ( ! empty( $query_str ) ) {
+            parse_str( $query_str, $query_args );
         }
 
-        $code = wp_remote_retrieve_response_code( $response );
-        if ( $code !== 200 ) {
+        $explicit_page = isset( $query_args['page'] );
+        $per_page      = isset( $query_args['per_page'] ) ? max( 1, min( 100, (int) $query_args['per_page'] ) ) : 100;
+
+        $query_args['per_page'] = $per_page;
+        $page                   = $explicit_page ? max( 1, (int) $query_args['page'] ) : 1;
+
+        // Safety cap so a misbehaving/huge endpoint can't loop forever.
+        $max_pages = (int) apply_filters( 'woosync_pro_max_fetch_pages', 500 );
+
+        // Allow this admin-initiated sync to run long enough to pull large catalogs
+        // across many HTTP requests without hitting the default PHP execution limit.
+        if ( function_exists( 'set_time_limit' ) ) {
+            @set_time_limit( 300 );
+        }
+
+        $all_products = array();
+
+        do {
+            $query_args['page'] = $page;
+            $endpoint            = $base_path . '?' . http_build_query( $query_args );
+
+            $response = wp_remote_get( $endpoint, array(
+                'timeout'    => 30,
+                'user-agent' => 'WooSync Pro Importer/' . WOOSYNC_VERSION,
+                'headers'    => array(
+                    'Accept' => 'application/json',
+                ),
+            ) );
+
+            if ( is_wp_error( $response ) ) {
+                // Keep whatever earlier pages already succeeded rather than losing
+                // an entire multi-page sync to one flaky request.
+                if ( ! empty( $all_products ) ) {
+                    break;
+                }
+                return $response;
+            }
+
+            $code = wp_remote_retrieve_response_code( $response );
+            if ( $code !== 200 ) {
+                if ( ! empty( $all_products ) ) {
+                    break;
+                }
+                $body = wp_remote_retrieve_body( $response );
+                $err  = json_decode( $body, true );
+                $msg  = isset( $err['message'] ) ? $err['message'] : "HTTP Status: $code";
+                return new WP_Error( 'wc_api_error', sprintf( __( 'WooCommerce Store API Error: %s', 'woosync-pro' ), $msg ) );
+            }
+
             $body = wp_remote_retrieve_body( $response );
-            $err  = json_decode( $body, true );
-            $msg  = isset( $err['message'] ) ? $err['message'] : "HTTP Status: $code";
-            return new WP_Error( 'wc_api_error', sprintf( __( 'WooCommerce Store API Error: %s', 'woosync-pro' ), $msg ) );
-        }
+            $data = json_decode( $body, true );
 
-        $body = wp_remote_retrieve_body( $response );
-        $data = json_decode( $body, true );
+            if ( empty( $data ) || ! is_array( $data ) ) {
+                break;
+            }
 
-        if ( empty( $data ) ) {
+            // Single product object response (a direct single-product endpoint).
+            if ( isset( $data['id'] ) && ! empty( $data['id'] ) && ! isset( $data[0] ) ) {
+                $all_products[] = $data;
+                break;
+            }
+
+            $all_products = array_merge( $all_products, $data );
+
+            if ( $explicit_page ) {
+                break; // Caller asked for exactly one specific page.
+            }
+
+            $total_pages = (int) wp_remote_retrieve_header( $response, 'x-wp-totalpages' );
+
+            if ( $total_pages > 0 ) {
+                $has_more = ( $page < $total_pages );
+            } else {
+                // No pagination header available; fall back to a short-page heuristic.
+                $has_more = ( count( $data ) >= $per_page );
+            }
+
+            $page++;
+        } while ( $has_more && $page <= $max_pages );
+
+        if ( empty( $all_products ) ) {
             return new WP_Error( 'no_products', __( 'No products found on the remote WooCommerce store.', 'woosync-pro' ) );
         }
 
-        // Single product object
-        if ( isset( $data['id'] ) && ! empty( $data['id'] ) && ! isset( $data[0] ) ) {
-            return self::normalize_woocommerce_store_products( array( $data ) );
-        }
-
-        // Array of products
-        if ( is_array( $data ) && ! empty( $data ) ) {
-            return self::normalize_woocommerce_store_products( $data );
-        }
-
-        return new WP_Error( 'no_products', __( 'No products found on the remote WooCommerce store.', 'woosync-pro' ) );
+        return self::normalize_woocommerce_store_products( $all_products );
     }
 
     /**
