@@ -135,9 +135,16 @@ class WooSync_Fetcher {
         $base_path   = $url_parts[0];
         $query_str   = isset( $url_parts[1] ) ? $url_parts[1] : '';
 
+        // Handle frontend single product URL (e.g. https://example.com/product/some-slug or https://example.com/products/some-slug)
+        if ( preg_match( '#/products?/([a-zA-Z0-9\-_]+)$#i', $base_path, $slug_matches ) && strpos( $base_path, '/wp-json/' ) === false ) {
+            $product_slug = $slug_matches[1];
+            $site_root    = preg_replace( '#/products?/[a-zA-Z0-9\-_]+$#i', '', $base_path );
+            $base_path    = $site_root . '/wp-json/wc/store/v1/products';
+            $query_str    = ( ! empty( $query_str ) ? $query_str . '&' : '' ) . 'slug=' . $product_slug;
+        }
         // If user provided a base store URL (e.g. https://example.com), normalize it
         // to the Store API products endpoint.
-        if ( strpos( $base_path, '/wp-json/' ) === false ) {
+        elseif ( strpos( $base_path, '/wp-json/' ) === false ) {
             $base_path .= '/wp-json/wc/store/v1/products';
         }
 

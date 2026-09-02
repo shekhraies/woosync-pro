@@ -150,10 +150,10 @@ class WooSync_Admin {
                     <div class="source-panel" id="panel-woocommerce-store-api" style="display:none;">
                         <table class="form-table">
                             <tr>
-                                <th scope="row"><label for="wc_store_api_url"><?php esc_html_e( 'WooCommerce Store API Endpoint', 'woosync-pro' ); ?> <span class="required">*</span></label></th>
+                                <th scope="row"><label for="wc_store_api_url"><?php esc_html_e( 'WooCommerce Store, Catalog, or Single Product URL', 'woosync-pro' ); ?> <span class="required">*</span></label></th>
                                 <td>
-                                    <input type="url" id="wc_store_api_url" class="regular-text" placeholder="https://flattered-ensure-amendment.ngrok-free.dev/wp-json/wc/store/v1/products" style="width: 100%; max-width: 650px;">
-                                    <p class="description"><?php esc_html_e( 'Enter the public Store API products endpoint (e.g. https://example.com/wp-json/wc/store/v1/products) or single product endpoint.', 'woosync-pro' ); ?></p>
+                                    <input type="url" id="wc_store_api_url" class="regular-text" placeholder="https://flattered-ensure-amendment.ngrok-free.dev/wp-json/wc/store/v1/products?per_page=5&page=1" style="width: 100%; max-width: 650px;">
+                                    <p class="description"><?php esc_html_e( 'Enter full catalog URL (e.g. https://example.com/wp-json/wc/store/v1/products or https://example.com), single product URL (e.g. https://example.com/wp-json/wc/store/v1/products/893 or https://example.com/product/product-slug), or query with pagination (e.g. ?per_page=5&page=1).', 'woosync-pro' ); ?></p>
                                 </td>
                             </tr>
                         </table>
