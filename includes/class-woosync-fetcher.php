@@ -217,12 +217,15 @@ class WooSync_Fetcher {
             }
 
             $total_pages = (int) wp_remote_retrieve_header( $response, 'x-wp-totalpages' );
+            $total_items = (int) wp_remote_retrieve_header( $response, 'x-wp-total' );
 
             if ( $total_pages > 0 ) {
                 $has_more = ( $page < $total_pages );
+            } elseif ( $total_items > 0 ) {
+                $has_more = ( count( $all_products ) < $total_items );
             } else {
-                // No pagination header available; fall back to a short-page heuristic.
-                $has_more = ( count( $data ) >= $per_page );
+                // No pagination header available; continue while non-empty data is returned.
+                $has_more = ! empty( $data ) && count( $data ) >= min( 10, $per_page );
             }
 
             $page++;
