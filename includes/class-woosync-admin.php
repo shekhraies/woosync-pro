@@ -17,10 +17,27 @@ class WooSync_Admin {
     public function __construct() {
         add_action( 'admin_menu', array( $this, 'add_menu' ) );
         add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
+        add_filter( 'plugin_action_links_' . plugin_basename( WOOSYNC_FILE ), array( $this, 'add_action_links' ) );
 
         // AJAX endpoints
         add_action( 'wp_ajax_woosync_fetch_products', array( $this, 'ajax_fetch_products' ) );
         add_action( 'wp_ajax_woosync_sync_single', array( $this, 'ajax_sync_single' ) );
+    }
+
+    /**
+     * Add action links on plugins.php list page.
+     *
+     * @param array $links
+     * @return array
+     */
+    public function add_action_links( $links ) {
+        $woosync_link = sprintf(
+            '<a href="%s" style="font-weight: 600; color: #2271b1;">%s</a>',
+            admin_url( 'admin.php?page=woosync-pro' ),
+            __( 'WooSync Pro', 'woosync-pro' )
+        );
+        array_unshift( $links, $woosync_link );
+        return $links;
     }
 
     /**
